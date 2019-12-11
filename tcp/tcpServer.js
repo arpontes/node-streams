@@ -1,4 +1,5 @@
 const fs = require('fs');
+const stream = require('stream');
 const net = require('net');
 const json = require('JSONStream');
 
@@ -46,28 +47,33 @@ function buildJsonStream() {
 	return parseStrm;
 }
 
-//Recebe o arquivo e já vai processando o conteúdo como json e escrevendo para o arquivo de destino
-//conforme o dado vai sendo disponibilizado.
-
-function receiveJsonAsStream() {
-	//Cria o servidor que vai receber um socket (que, basicamente, é um stream de rede)
-	const server = net.createServer(socket => {
-		//O médoto buildJsonStream monta o stream que fará o processamento dos dados recebidos.
-		var strm = buildJsonStream();
-
-		//Tudo começa neste ponto! Assim que uma conexão é feita e um socket é disponibilizado, fazemos
-		//um pipe para o stream que processará o json. Quando não houver mais dados para receber, fecharemos o servidor.
-		socket.pipe(strm).on('close', () => {
-			console.log("Terminou de receber");
-			server.close();
-		});
-	});
-	//Iniciando servidor na porta 1234.
-	server.listen(1234);
+class CheckType extends stream.Transform {
+	constructor(filterType, opts) {
+		super({ ...opts, objectMode: true });
+		this.filterType = filterType;
+	}
+	_transform(obj, encoding, callback) {
+		if (obj.type === this.filterType)
+			this.push(obj);
+		callback();
+	}
 }
-receiveJsonAsStream();
+function buildJsonPipes() {
+	const parseStrm = json.parse([true]);
 
+	//Da mesma forma que a leitura, a gravação do dado será feita via stream. O pacote JSONStream também
+	//dá suporte à serialização para json via stream. No caso, a regra de negócio diz para separarmos os objetos
+	//recebidos de acordo com a propriedade type. Assim, teremos dois streams de escrita que gravarão em dois arquivos diferentes.
+	const jsonStrm1 = json.stringify();
+	const jsonStrm2 = json.stringify();
+	jsonStrm1.pipe(fs.createWriteStream('./fileType1.json'));
+	jsonStrm2.pipe(fs.createWriteStream('./fileType2.json'));
 
+	parseStrm.pipe(new CheckType(1)).pipe(jsonStrm1);
+	parseStrm.pipe(new CheckType(2)).pipe(jsonStrm2);
+
+	return parseStrm;
+}
 
 
 
@@ -97,6 +103,34 @@ function receiveFileAsStream() {
 }
 receiveFileAsStream();
 */
+
+
+
+//Recebe o arquivo e já vai processando o conteúdo como json e escrevendo para o arquivo de destino
+//conforme o dado vai sendo disponibilizado.
+
+function receiveJsonAsStream() {
+	//Cria o servidor que vai receber um socket (que, basicamente, é um stream de rede)
+	const server = net.createServer(socket => {
+		//O médoto buildJsonStream monta o stream que fará o processamento dos dados recebidos.
+		var strm = buildJsonPipes();
+
+		//Tudo começa neste ponto! Assim que uma conexão é feita e um socket é disponibilizado, fazemos
+		//um pipe para o stream que processará o json. Quando não houver mais dados para receber, fecharemos o servidor.
+		socket.pipe(strm).on('close', () => {
+			console.log("Terminou de receber");
+			server.close();
+		});
+	});
+	//Iniciando servidor na porta 1234.
+	server.listen(1234);
+}
+receiveJsonAsStream();
+
+
+
+
+
 
 
 
